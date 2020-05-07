@@ -21,16 +21,16 @@ FontBuf	ds 10	; 2x5 array of playfield bytes
 ; Constants
 _BackgroundColor   equ $00 
 _PlayfieldColor    equ $00
-_P0Color           equ $0e
-_P1Color           equ $0e
-_P0ScoreColor      equ $00
+_P0Color           equ $48  
+_P1Color           equ $a8 
+_P0ScoreColor      equ $1C 
 _P1ScoreColor      equ $00
 _BallColor         equ $00
-_P0XPos            equ $06
+_P0XPos            equ $01
 _P1XPos            equ $80
-_PlayerHeight      equ $14
+_PlayerHeight      equ $25
 _ScoreDigitsHeight equ $00
-_TopBorderYPos     equ $4E
+_TopBorderYPos     equ 139  ;$4E
 _BottomBorderYPos  equ $01
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -57,7 +57,7 @@ Start
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Initialize RAM variables and TIA registers
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-    lda #35
+    lda #60
     sta P0YPos              
     sta P1YPos
     sta BallYPos
@@ -101,14 +101,6 @@ NextFrame
     lda #$42
     sta Score1
     
-    ;lda #_P0XPos
-    ;ldy #0
-    ;jsr SetObjHorizPos        ; set player0 horizontal position (1 WSYNC)
-
-    ;lda #_P1XPos
-    ;ldy #1
-    ;jsr SetObjHorizPos        ; set player1 horizontal position (1 WSYNC)
-
     ;lda BallXPos
     ;ldy #4
     ;jsr SetObjHorizPos        ; set ball horizontal position (1 WSYNC)
@@ -165,7 +157,7 @@ ScanLoop1
 
         TIMER_WAIT ; 21 scanlines
         
-        TIMER_SETUP 171
+        TIMER_SETUP 172
 ;------------------------------------------------------------        
         ;TIMER_SETUP 7  
         
@@ -178,6 +170,11 @@ ScanLoop1
        sta PF0
        sta PF1
        sta PF2 
+       
+       ; Turn off drawing players
+       ;lda #0
+       ;sta GRP0
+       ;sta GRP1
        
        ldx #7    
 ScanLoop2
@@ -200,6 +197,41 @@ ScanLoop2
        
        ldx #158
 ScanLoop3
+;---------------------------------------------------------------------------
+;---------------------DRAWING PLAYERS--------------------------------
+
+.IsInsideSpriteP0Check:      ; check if should render sprite player0
+    txa                      ; transfer X to A
+    sec                      ; make sure carry flag is set
+    sbc P0YPos               ; subtract sprite Y coordinate
+    cmp #_PlayerHeight          ; are we inside the sprite height bounds?
+    lda 1
+    bcc .DrawSpriteP0        ; if result < SpriteHeight, call subroutine
+    lda #0                   ; else, set lookup index to 0
+.DrawSpriteP0:
+    clc                      ; clears carry flag before addition
+    tay                      ; load Y so we can work with pointer
+    lda PlayerSprite,Y  ; load player bitmap slice of data
+    sta GRP0                 ; set graphics for player 0
+    lda #_P0Color             ; load player color from lookup table
+    sta COLUP0               ; set color for player 0 slice;
+.IsInsideSpriteP1Check:      ; check if should render sprite player0
+    txa                      ; transfer X to A
+    sec                      ; make sure carry flag is set
+    sbc P1YPos               ; subtract sprite Y coordinate
+    cmp #_PlayerHeight          ; are we inside the sprite height bounds?
+    lda 1
+    bcc .DrawSpriteP1        ; if result < SpriteHeight, call subroutine
+    lda #0                   ; else, set lookup index to 0
+.DrawSpriteP1:
+    clc                      ; clears carry flag before addition
+    tay                      ; load Y so we can work with pointer
+    lda PlayerSprite,Y  ; load player bitmap slice of data
+    sta GRP1                 ; set graphics for player 0
+    lda #_P1Color             ; load player color from lookup table
+    sta COLUP1               ; set color for player 0 slice;
+
+;----------------------------------------------------------------------------
        sta WSYNC
        sta WSYNC
        dex
@@ -216,7 +248,12 @@ ScanLoop3
        lda #$ff
        sta PF0
        sta PF1
-       sta PF2     
+       sta PF2
+       
+       ; Turn off drawing players
+       lda #0
+       sta GRP0
+       sta GRP1
        
        ldx #8
 ScanLoop4
@@ -312,7 +349,7 @@ ScanLoop4
         
         TIMER_WAIT ; wait for 192 scanlines
         
-        TIMER_SETUP 29 ; Overscan
+        TIMER_SETUP 28 ; Overscan
         
            
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -322,9 +359,10 @@ CheckP0Up:
     lda #%00010000           ; player 0 joystick up
     bit SWCHA
     bne CheckP0Down
-    ldx #_TopBorderYPos
-    cpx P0YPos
-    beq CheckP0Down
+    lda #_TopBorderYPos
+    sbc P0YPos
+    bcc CheckP0Down
+    inc P0YPos
     inc P0YPos
     lda #0
 
@@ -332,9 +370,10 @@ CheckP0Down:
     lda #%00100000           ; player 0 joystick down
     bit SWCHA
     bne CheckP1Up
-    ldx #_BottomBorderYPos
-    cpx P0YPos               ; compare Y Pos with 0
-    beq CheckP1Up        ; do not change if Y == 0  s
+    lda #_BottomBorderYPos
+    sbc P0YPos               ; compare Y Pos with 0
+    bcs CheckP1Up        ; do not change if Y == 0  s
+    dec P0YPos
     dec P0YPos
     lda #0
 
@@ -342,9 +381,10 @@ CheckP1Up:
     lda #%00000001           ; player 1 joystick up
     bit SWCHA
     bne CheckP1Down
-    ldx #_TopBorderYPos
-    cpx P1YPos
-    beq CheckP1Down
+    lda #_TopBorderYPos
+    sbc P1YPos
+    bcc CheckP1Down
+    inc P1YPos
     inc P1YPos
     lda #0
     
@@ -352,13 +392,24 @@ CheckP1Down:
     lda #%00000010           ; player 1 joystick down
     bit SWCHA
     bne EndInputCheck
-    ldx #_BottomBorderYPos
-    cpx P1YPos               ; compare Y Pos with 0
-    beq EndInputCheck        ; do not change if Y == 0  
+    lda #_BottomBorderYPos
+    sbc P1YPos               ; compare Y Pos with 0
+    bcs EndInputCheck        ; do not change if Y == 0  
+    dec P1YPos
     dec P1YPos
     lda #0
 
 EndInputCheck:               ; fallback when no input was performed
+
+
+ lda #_P0XPos
+    ldy #0
+    jsr SetObjHorizPos        ; set player0 horizontal position (1 WSYNC)
+
+    lda #_P1XPos
+    ldy #1
+    jsr SetObjHorizPos        ; set player1 horizontal position (1 WSYNC)
+
                
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -397,103 +448,6 @@ SetObjHorizPos subroutine
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Declare ROM lookup tables
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-Digits:
-    .byte %01110111          ; ### ###
-    .byte %01010101          ; # # # #
-    .byte %01010101          ; # # # #
-    .byte %01010101          ; # # # #
-    .byte %01110111          ; ### ###
-
-    .byte %00010001          ;   #   #
-    .byte %00010001          ;   #   #
-    .byte %00010001          ;   #   #
-    .byte %00010001          ;   #   #
-    .byte %00010001          ;   #   #
-
-    .byte %01110111          ; ### ###
-    .byte %00010001          ;   #   #
-    .byte %01110111          ; ### ###
-    .byte %01000100          ; #   #
-    .byte %01110111          ; ### ###
-
-    .byte %01110111          ; ### ###
-    .byte %00010001          ;   #   #
-    .byte %00110011          ;  ##  ##
-    .byte %00010001          ;   #   #
-    .byte %01110111          ; ### ###
-
-    .byte %01010101          ; # # # #
-    .byte %01010101          ; # # # #
-    .byte %01110111          ; ### ###
-    .byte %00010001          ;   #   #
-    .byte %00010001          ;   #   #
-
-    .byte %01110111          ; ### ###
-    .byte %01000100          ; #   #
-    .byte %01110111          ; ### ###
-    .byte %00010001          ;   #   #
-    .byte %01110111          ; ### ###
-
-    .byte %01110111          ; ### ###
-    .byte %01000100          ; #   #
-    .byte %01110111          ; ### ###
-    .byte %01010101          ; # # # #
-    .byte %01110111          ; ### ###
-
-    .byte %01110111          ; ### ###
-    .byte %00010001          ;   #   #
-    .byte %00010001          ;   #   #
-    .byte %00010001          ;   #   #
-    .byte %00010001          ;   #   #
-
-    .byte %01110111          ; ### ###
-    .byte %01010101          ; # # # #
-    .byte %01110111          ; ### ###
-    .byte %01010101          ; # # # #
-    .byte %01110111          ; ### ###
-
-    .byte %01110111          ; ### ###
-    .byte %01010101          ; # # # #
-    .byte %01110111          ; ### ###
-    .byte %00010001          ;   #   #
-    .byte %01110111          ; ### ###
-
-    .byte %00100010          ;  #   #
-    .byte %01010101          ; # # # #
-    .byte %01110111          ; ### ###
-    .byte %01010101          ; # # # #
-    .byte %01010101          ; # # # #
-
-    .byte %01110111          ; ### ###
-    .byte %01010101          ; # # # #
-    .byte %01100110          ; ##  ##
-    .byte %01010101          ; # # # #
-    .byte %01110111          ; ### ###
-
-    .byte %01110111          ; ### ###
-    .byte %01000100          ; #   #
-    .byte %01000100          ; #   #
-    .byte %01000100          ; #   #
-    .byte %01110111          ; ### ###
-
-    .byte %01100110          ; ##  ##
-    .byte %01010101          ; # # # #
-    .byte %01010101          ; # # # #
-    .byte %01010101          ; # # # #
-    .byte %01100110          ; ##  ##
-
-    .byte %01110111          ; ### ###
-    .byte %01000100          ; #   #
-    .byte %01110111          ; ### ###
-    .byte %01000100          ; #   #
-    .byte %01110111          ; ### ###
-
-    .byte %01110111          ; ### ###
-    .byte %01000100          ; #   #
-    .byte %01100110          ; ##  ##
-    .byte %01000100          ; #   #
-    .byte %01000100          ; #   #
-
 DigitsHex:
     .byte $22,$22,$22,$22,$22
     .byte $EE,$22,$EE,$88,$EE
@@ -507,28 +461,8 @@ DigitsHex:
 
 PlayerSprite:
     .byte #%00000000         ;
-    .byte #%01110000         ; ###
-    .byte #%01110000         ; ###
-    .byte #%01110000         ; ###
-    .byte #%01110000         ; ###
-    .byte #%01110000         ; ###
-    .byte #%01110000         ; ###
-    .byte #%01110000         ; ###
-    .byte #%01110000         ; ###
-    .byte #%01110000         ; ###
-    .byte #%01110000         ; ###
-    .byte #%01110000         ; ###
-    .byte #%01110000         ; ###
-    .byte #%01110000         ; ###
-    .byte #%01110000         ; ###
-    .byte #%01110000         ; ###
-    .byte #%01110000         ; ###
-    .byte #%01110000         ; ###
-    .byte #%01110000         ; ###
-    .byte #%01110000         ; ###
- 
- 
- 
+    .byte #%00110000         ; ##
+    
 GetBCDBitmap subroutine
 ; First fetch the bytes for the 1st digit
 	pha		; save original BCD number
