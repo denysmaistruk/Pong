@@ -15,7 +15,16 @@ BallXPos        byte
 BallYPos        byte
 Temp            byte
 PlayerSpritePtr word;
+MissileXPos      byte;
+MissileYPos      byte;
 
+
+yball          byte;
+xball          byte;
+yballvel       byte;
+xballvel       byte;
+
+ 
 FontBuf	ds 10	; 2x5 array of playfield bytes
 
 ; Constants
@@ -26,24 +35,41 @@ _P1Color           equ $a8
 _P0ScoreColor      equ $1C 
 _P1ScoreColor      equ $00
 _BallColor         equ $00
-_P0XPos            equ $01
+_P0XPos            equ $0A
 _P1XPos            equ $80
 _PlayerHeight      equ $25
 _ScoreDigitsHeight equ $00
 _TopBorderYPos     equ 139  ;$4E
-_BottomBorderYPos  equ $01
+_BottomBorderYPos  equ $04
+
+_MissileXPos        equ 70
+_Missile2XPos       equ 69
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Declare MACRO to check if we should render the missile
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    MAC DRAW_MISSILE
+        lda #0                ; start accumualtor with 0 (null position)
+        cpx MissileYPos       ; compare X/scanline with missile y-position
+        bne .SkipMissileDraw  ; if is not equal, skip the draw of missile0
+        inc MissileYPos       ; else, increase y-position of the bullet/ball
+        lda #%00000010        ; and set ENABL second bit to enable missile
+.SkipMissileDraw
+        sta ENAM0             ; store correct value in the TIA missile register
+    ENDM
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Enable ball if it is on this scanline (in X register)
 ; Modifies A.
-;	MAC DRAW_BALL
-;	lda #%00000000
-;	cpx yball
-;        bne .noball
-;        lda #%00000010	; for ENAM0 the 2nd bit is enable
-;.noball
-;	sta ENABL	; enable ball
-;        ENDM
+	MAC DRAW_BALL
+	lda #%00000000
+	cpx yball
+        bne .noball
+        lda #%00000010	; for ENAM0 the 2nd bit is enable
+.noball
+	sta ENABL	; enable ball
+        ENDM
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -60,39 +86,48 @@ Start
     lda #60
     sta P0YPos              
     sta P1YPos
-    sta BallYPos
+       
+    lda #76
+    sta yball
+    lda #0
+    sta xball
     
-    lda #42
-    sta BallXPos
-    
+    ; Set ball initial velocity
+    lda #1
+    sta yballvel
+    lda #$30
+    sta xballvel
+       
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Initialize pointers to the correct lookup table addresses
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-    lda #<PlayerSprite
-    sta PlayerSpritePtr         ; lo-byte pointer for jet sprite lookup table
-    lda #>PlayerSprite
-    sta PlayerSpritePtr+1       ; hi-byte pointer for jet sprite lookup table    
+ 
  
 NextFrame
-     VERTICAL_SYNC
-             
-	TIMER_SETUP 37 ; Wait for VBLANK
-        
+    VERTICAL_SYNC
+    TIMER_SETUP 37 ; Wait for VBLANK
+            
+    lda #_P0XPos
+    ldy #0
+    jsr SetObjHorizPos        ; set player0 horizontal position (1 WSYNC)
+    
+    lda #_P1XPos
+    ldy #1
+    jsr SetObjHorizPos        ; set player1 horizontal position (1 WSYNC)    
           
-       lda #$00                 ; Yellow playfiled color
-       sta COLUPF
-        
-	lda Score0
-        ldx #0
-	jsr GetBCDBitmap
-	lda Score1
-        ldx #5
-	jsr GetBCDBitmap
-         
-         
-         
-         
-         
+    lda xball
+    ldy #4
+    jsr SetObjHorizPos
+    sta WSYNC
+    sta HMOVE
+                    
+    lda Score0       
+    ldx #0
+    jsr GetBCDBitmap
+    lda Score1
+    ldx #5
+    jsr GetBCDBitmap
+             
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Calculations and tasks performed pre-VBLANK
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -101,23 +136,8 @@ NextFrame
     lda #$42
     sta Score1
     
-    ;lda BallXPos
-    ;ldy #4
-    ;jsr SetObjHorizPos        ; set ball horizontal position (1 WSYNC)
-
-    ;jsr CalculateDigitOffset ; calculate scoreboard digits lookup table offset
-
-    ;jsr GenerateJetSound     ; configure and enable jet audio
-
-    ;sta WSYNC                 ; wait until the WSYNC from the TIA
-    ;sta HMOVE                 ; apply horizontal offsets previously set
-
-; 33 lines of VBLANK, 4 WSYNCs used above
-        ;ldx #33 
 ;Underscan
-;	sta WSYNC
-;	dex
-;	bne Underscan
+
          
         TIMER_WAIT
 	TIMER_SETUP 20
@@ -157,11 +177,11 @@ ScanLoop1
 
         TIMER_WAIT ; 21 scanlines
         
-        TIMER_SETUP 172
+        TIMER_SETUP 174
 ;------------------------------------------------------------        
         ;TIMER_SETUP 7  
         
-       lda #%0000001	; mirror playfield
+       lda #%0000011	; mirror playfield
        sta CTRLPF
        lda #$1C                 ; Yellow playfiled color
        sta COLUPF
@@ -193,13 +213,21 @@ ScanLoop2
        sta PF0
        lda #$00
        sta PF1
+       lda #%10000000
        sta PF2
+
        
+       ; enable missle
+       lda #%00000000        ; and set ENABL second bit to enable missile
+       sta ENAM0
+       sta ENAM1
+
        ldx #158
 ScanLoop3
+
+; check for ball
 ;---------------------------------------------------------------------------
 ;---------------------DRAWING PLAYERS--------------------------------
-
 .IsInsideSpriteP0Check:      ; check if should render sprite player0
     txa                      ; transfer X to A
     sec                      ; make sure carry flag is set
@@ -212,6 +240,8 @@ ScanLoop3
     clc                      ; clears carry flag before addition
     tay                      ; load Y so we can work with pointer
     lda PlayerSprite,Y  ; load player bitmap slice of data
+    
+    sta WSYNC
     sta GRP0                 ; set graphics for player 0
     lda #_P0Color             ; load player color from lookup table
     sta COLUP0               ; set color for player 0 slice;
@@ -227,16 +257,26 @@ ScanLoop3
     clc                      ; clears carry flag before addition
     tay                      ; load Y so we can work with pointer
     lda PlayerSprite,Y  ; load player bitmap slice of data
+     sta WSYNC
     sta GRP1                 ; set graphics for player 0
     lda #_P1Color             ; load player color from lookup table
     sta COLUP1               ; set color for player 0 slice;
+    
+    ;DRAW_BALL
+    lda #%00000000
+	cpx yball
+        bne .noball
+        lda #%00000010	; for ENAM0 the 2nd bit is enable
+.noball
+ sta ENABL
+    
+    
 
 ;----------------------------------------------------------------------------
-       sta WSYNC
-       sta WSYNC
        dex
        dex
        bne ScanLoop3
+       sta WSYNC
        ;TIMER_WAIT ; 158
 ;------------------------------------------------------------        
        
@@ -249,13 +289,21 @@ ScanLoop3
        sta PF0
        sta PF1
        sta PF2
+        
+        ; disable missle
+       lda #%00000000        ; and set ENABL second bit to enable missile
+       sta ENAM0
+       sta ENAM1  
        
        ; Turn off drawing players
        lda #0
        sta GRP0
        sta GRP1
        
-       ldx #8
+      
+       
+       
+       ldx #7
 ScanLoop4
 	sta WSYNC
         dex
@@ -265,78 +313,6 @@ ScanLoop4
 ;------------------------------------------------------------        
 
 
-        
-        
-        
-        
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Display the second 2-line kernel with the remaining visible scanlines
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;GameVisibleLine:
-;    lda #$84
-;    sta COLUBK               ; set background color to blue
-;    lda #$C2
-;    sta COLUPF               ; set playfield/terrain color to green
-;    lda #%00000001
-;    sta CTRLPF               ; enable PF reflection;;;
-
-    ;lda #$F0
-    ;sta PF0
-    ;lda #$FC
-    ;sta PF1
-    ;lda #0
-    ;sta PF2                  ; set PF0, PF1, and PF2 playfield/terrain pattern
-    ;sta CXCLR                ; clear all collisions registers
-
-    ;ldx #96                 ; X counts the number of remaining scanlines
-                            ; As we use 2-line kernel ->192 / 2 = 96 scanlines
-
-;.GameLineLoop:
-    ;DRAW_MISSILE             ; check if should render the missile
-    
-;.IsInsideSpriteP0Check:      ; check if should render sprite player0
- ;   txa                      ; transfer X to A
- ;   sec                      ; make sure carry flag is set
- ;   sbc P0YPos               ; subtract sprite Y coordinate
- ;   cmp #_PlayerHeight          ; are we inside the sprite height bounds?
- ;   bcc .DrawSpriteP0        ; if result < SpriteHeight, call subroutine
- ;   lda #0                   ; else, set lookup index to 0
-;.DrawSpriteP0:
- ;   clc                      ; clears carry flag before addition
-    ;adc JetAnimOffset       ; jump to correct sprite frame address in memory
-  ;  tay                      ; load Y so we can work with pointer
-   ; lda (PlayerSpritePtr),Y  ; load player bitmap slice of data
-   ; ;sta WSYNC                ; wait for next scanline
-    ;sta GRP0                 ; set graphics for player 0
-;    lda _P0Color             ; load player color from lookup table
-;    sta COLUP0               ; set color for player 0 slice;
-
-;.IsInsideSpriteP1Check:      ; check if should render sprite player1
-;    txa                      ; transfer X to A
-;    sec                      ; make sure carry flag is set
-;    sbc P1YPos               ; subtract sprite Y coordinate
-;    cmp #_PlayerHeight       ; are we inside the sprite height bounds?
-;    bcc .DrawSpriteP1        ; if result < SpriteHeight, call subroutine
-;    lda #0                   ; else, set index to 0
-;.DrawSpriteP1:
-;    tay
-;    lda #%0000101
-;    lda (PlayerSpritePtr),Y  ; load player bitmap slice of data
-;    ;sta WSYNC                ; wait for next scanline
-;    sta GRP1                 ; set graphics for player 0
-;    lda _P1Color             ; load player color from lookup table
-;    sta COLUP1               ; set color for player 0 slice
-    
-;    dex                      ; X--
-;    sta WSYNC 
-;    sta WSYNC
- ;   bne .GameLineLoop        ; repeat next main game scanline until finished
-
-  ;  lda #0
-    ;sta JetAnimOffset        ; always reset jet animation frame to zero
-
-    
-    ;sta WSYNC
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Display Overscan
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -351,7 +327,8 @@ ScanLoop4
         
         TIMER_SETUP 28 ; Overscan
         
-           
+           dec yball
+           inc xball
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Process joystick input for player0 up/down/left/right
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -402,13 +379,7 @@ CheckP1Down:
 EndInputCheck:               ; fallback when no input was performed
 
 
- lda #_P0XPos
-    ldy #0
-    jsr SetObjHorizPos        ; set player0 horizontal position (1 WSYNC)
-
-    lda #_P1XPos
-    ldy #1
-    jsr SetObjHorizPos        ; set player1 horizontal position (1 WSYNC)
+ 
 
                
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -461,7 +432,7 @@ DigitsHex:
 
 PlayerSprite:
     .byte #%00000000         ;
-    .byte #%00110000         ; ##
+    .byte #%01110000         ; ##
     
 GetBCDBitmap subroutine
 ; First fetch the bytes for the 1st digit
